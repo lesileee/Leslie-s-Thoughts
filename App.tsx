@@ -1,8 +1,44 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Theme, Thought } from './types';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ThoughtList } from './components/ThoughtList';
 import { enhanceThought } from './services/geminiService';
+import { storage } from './services/storageService';
+
+// --- Helpers ---
+const compressImage = (base64: string): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxDim = 1024; 
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height && width > maxDim) {
+        height *= maxDim / width;
+        width = maxDim;
+      } else if (height > maxDim) {
+        width *= maxDim / height;
+        height = maxDim;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          // Compress to JPEG 70% quality to save space
+          resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+      } else {
+          resolve(base64);
+      }
+    };
+    img.onerror = () => resolve(base64);
+  });
+};
 
 // --- Auth Form Component ---
 interface AuthFormProps {
@@ -119,6 +155,7 @@ const App: React.FC = () => {
   // --- View State ---
   const [showLanding, setShowLanding] = useState(true);
   const [landingAuthMode, setLandingAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   
   // Modal (for in-app login)
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -130,21 +167,9 @@ const App: React.FC = () => {
 
   // --- Initialization Effects ---
   useEffect(() => {
-    // Theme
+    // Theme (Small data, LocalStorage is fine)
     const savedTheme = localStorage.getItem('theme') as Theme | null;
     setTheme(savedTheme || Theme.DARK);
-
-    // Thoughts
-    const savedThoughts = localStorage.getItem('thoughts');
-    if (savedThoughts) {
-      try { setThoughts(JSON.parse(savedThoughts)); } catch (e) { console.error(e); }
-    }
-
-    // Users
-    const savedUsers = localStorage.getItem('registered_users');
-    if (savedUsers) {
-      try { setRegisteredUsers(JSON.parse(savedUsers)); } catch (e) { console.error(e); }
-    }
 
     // User Session
     const savedUser = localStorage.getItem('user');
@@ -152,6 +177,24 @@ const App: React.FC = () => {
       setUser(savedUser);
       setShowLanding(false);
     }
+
+    // Load Large Data from IndexedDB
+    const loadData = async () => {
+        try {
+            const [savedThoughts, savedUsers] = await Promise.all([
+                storage.get<Thought[]>('thoughts'),
+                storage.get<string[]>('registered_users')
+            ]);
+            
+            if (savedThoughts) setThoughts(savedThoughts);
+            if (savedUsers) setRegisteredUsers(savedUsers);
+        } catch (e) {
+            console.error("Failed to load data", e);
+        } finally {
+            setIsDataLoaded(true);
+        }
+    };
+    loadData();
   }, []);
 
   // --- Persist Effects ---
@@ -163,26 +206,32 @@ const App: React.FC = () => {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('thoughts', JSON.stringify(thoughts));
-  }, [thoughts]);
+    if (isDataLoaded) {
+        storage.set('thoughts', thoughts).catch(console.error);
+    }
+  }, [thoughts, isDataLoaded]);
+
+  useEffect(() => {
+    if (isDataLoaded) {
+        storage.set('registered_users', registeredUsers).catch(console.error);
+    }
+  }, [registeredUsers, isDataLoaded]);
 
   // --- Handlers ---
   const toggleTheme = () => setTheme(p => p === Theme.DARK ? Theme.LIGHT : Theme.DARK);
 
   const handleAuthSuccess = (name: string) => {
-    // Register if in register mode
     const isRegistering = (showLanding && landingAuthMode === 'REGISTER') || (isModalOpen && modalMode === 'REGISTER');
     
     if (isRegistering) {
         const newUsers = [...registeredUsers, name];
         setRegisteredUsers(newUsers);
-        localStorage.setItem('registered_users', JSON.stringify(newUsers));
+        // Effect will trigger save
     }
 
     setUser(name);
     localStorage.setItem('user', name);
     
-    // Reset UI
     setShowLanding(false);
     setLandingAuthMode('LOGIN');
     setIsModalOpen(false);
@@ -198,13 +247,16 @@ const App: React.FC = () => {
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-        if (file.size > 2 * 1024 * 1024) {
-            // Simple client side check, though localStorage is the real limit
-            console.warn("Image large");
-        }
         const reader = new FileReader();
-        reader.onloadend = () => {
-            setSelectedImage(reader.result as string);
+        reader.onloadend = async () => {
+            const rawBase64 = reader.result as string;
+            try {
+                const compressed = await compressImage(rawBase64);
+                setSelectedImage(compressed);
+            } catch (e) {
+                console.warn("Compression failed, using raw", e);
+                setSelectedImage(rawBase64);
+            }
         };
         reader.readAsDataURL(file);
     }
@@ -435,12 +487,16 @@ const App: React.FC = () => {
 
         {/* List Section */}
         <main>
-          <ThoughtList 
-            thoughts={thoughts} 
-            onDelete={handleDeleteThought} 
-            onEdit={handleEditThought}
-            isAdmin={isAdmin} 
-          />
+          {!isDataLoaded ? (
+              <div className="text-center py-20 opacity-50">Loading...</div>
+          ) : (
+              <ThoughtList 
+                thoughts={thoughts} 
+                onDelete={handleDeleteThought} 
+                onEdit={handleEditThought}
+                isAdmin={isAdmin} 
+              />
+          )}
         </main>
       </div>
 
