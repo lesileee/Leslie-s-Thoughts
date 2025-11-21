@@ -108,6 +108,7 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>(Theme.DARK);
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [inputText, setInputText] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [useAI, setUseAI] = useState(false);
   
@@ -124,6 +125,7 @@ const App: React.FC = () => {
   const [modalMode, setModalMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isAdmin = user === 'Leslie Lyu';
 
   // --- Initialization Effects ---
@@ -193,8 +195,28 @@ const App: React.FC = () => {
     setLandingAuthMode('LOGIN');
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        if (file.size > 2 * 1024 * 1024) {
+            // Simple client side check, though localStorage is the real limit
+            console.warn("Image large");
+        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setSelectedImage(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+    }
+  };
+
+  const clearImage = () => {
+    setSelectedImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleAddThought = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() && !selectedImage) return;
 
     setIsSubmitting(true);
     const id = crypto.randomUUID();
@@ -203,7 +225,7 @@ const App: React.FC = () => {
     let tags: string[] = [];
     let aiEnhanced = false;
 
-    if (useAI) {
+    if (useAI && content) {
       try {
         const result = await enhanceThought(content);
         content = result.polished;
@@ -214,9 +236,18 @@ const App: React.FC = () => {
       }
     }
 
-    const newThought: Thought = { id, content, timestamp, tags, aiEnhanced };
+    const newThought: Thought = { 
+        id, 
+        content, 
+        timestamp, 
+        tags, 
+        aiEnhanced,
+        image: selectedImage || undefined
+    };
     setThoughts(prev => [newThought, ...prev]);
     setInputText('');
+    setSelectedImage(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setIsSubmitting(false);
     setUseAI(false);
     
@@ -318,6 +349,21 @@ const App: React.FC = () => {
                   rows={1}
                   disabled={isSubmitting}
                 />
+
+                {/* Image Preview */}
+                {selectedImage && (
+                  <div className="mt-3 relative w-24 h-24 group/preview">
+                    <img src={selectedImage} alt="Selected" className="w-full h-full object-cover rounded-lg border border-zinc-200 dark:border-zinc-700" />
+                    <button 
+                      onClick={clearImage}
+                      className="absolute -top-2 -right-2 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-full p-0.5 hover:scale-110 transition-transform"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
                 
                 <div className="flex justify-between items-center mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800/50">
                   <div className="flex items-center gap-2">
@@ -336,15 +382,35 @@ const App: React.FC = () => {
                         </svg>
                         {useAI ? 'AI Enhanced' : 'Enhance'}
                      </button>
+
+                     {/* Image Upload Button */}
+                     <input 
+                       type="file" 
+                       accept="image/*" 
+                       ref={fileInputRef} 
+                       className="hidden" 
+                       onChange={handleImageSelect}
+                     />
+                     <button
+                       onClick={() => fileInputRef.current?.click()}
+                       disabled={isSubmitting}
+                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-transparent text-zinc-500 hover:bg-zinc-100 dark:text-zinc-500 dark:hover:bg-zinc-800 transition-all duration-200"
+                       title="Upload image"
+                     >
+                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                         <path fillRule="evenodd" d="M1 5.25A2.25 2.25 0 013.25 3h13.5A2.25 2.25 0 0119 5.25v9.5A2.25 2.25 0 0116.75 17H3.25A2.25 2.25 0 011 14.75v-9.5zm1.5 5.81v3.69c0 .414.336.75.75.75h13.5a.75.75 0 00.75-.75v-2.69l-2.22-2.219a.75.75 0 00-1.06 0l-1.91 1.909.47.47a.75.75 0 11-1.06 1.06L6.53 8.091a.75.75 0 00-1.06 0l-2.97 2.97zM12 7a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+                       </svg>
+                       Image
+                     </button>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handleAddThought}
-                      disabled={!inputText.trim() || isSubmitting}
+                      disabled={(!inputText.trim() && !selectedImage) || isSubmitting}
                       className={`
                         rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200
-                        ${!inputText.trim() || isSubmitting
+                        ${(!inputText.trim() && !selectedImage) || isSubmitting
                           ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed'
                           : 'bg-zinc-900 dark:bg-zinc-100 text-zinc-100 dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300 active:scale-95 shadow-md'
                         }

@@ -112,9 +112,20 @@ export const ThoughtList: React.FC<ThoughtListProps> = ({ thoughts, onDelete, on
               </div>
             </div>
           ) : (
-            <p className="text-zinc-800 dark:text-zinc-200 text-lg leading-relaxed whitespace-pre-wrap font-light">
-              {thought.content}
-            </p>
+            <>
+              <p className="text-zinc-800 dark:text-zinc-200 text-lg leading-relaxed whitespace-pre-wrap font-light">
+                {thought.content}
+              </p>
+              {thought.image && (
+                <div className="mt-4 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800">
+                   <img 
+                     src={thought.image} 
+                     alt="Attached" 
+                     className="w-full h-auto max-h-96 object-cover hover:scale-105 transition-transform duration-500"
+                   />
+                </div>
+              )}
+            </>
           )}
 
           {thought.tags && thought.tags.length > 0 && (

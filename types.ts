@@ -9,6 +9,7 @@ export interface Thought {
   timestamp: number;
   tags?: string[];
   aiEnhanced?: boolean;
+  image?: string;
 }
 
 export interface AIResponse {
